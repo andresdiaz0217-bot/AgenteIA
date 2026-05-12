@@ -1,16 +1,48 @@
-# Python
-__pycache__/
-*.pyc
-
-# Virtual env
+# ── Entorno virtual ──────────────────────────────────────────────
 .venv/
 venv/
+env/
+ENV/
 
-# Environment variables
+# ── Variables de entorno (contienen API keys) ────────────────────
 .env
+!.env.example
 
-# VSCode
+# ── Python ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Pytest ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── IDEs ─────────────────────────────────────────────────────────
 .vscode/
+.idea/
+*.iml
 
-# OS
+# ── OS ───────────────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Docker ───────────────────────────────────────────────────────
+# (los archivos docker sí se versionar, solo ignorar datos locales)
+
+# ── Base de datos local (Sprint 4) ───────────────────────────────
+*.db
+*.sqlite3
+
+# ── Zip de distribución ──────────────────────────────────────────
+*.zip
