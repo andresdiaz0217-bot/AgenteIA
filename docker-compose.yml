@@ -1,0 +1,50 @@
+version: "3.9"
+
+# Sprint 1: solo el backend del agente
+# Sprint 4: agregar servicio de PostgreSQL
+# Sprint 5: agregar servicio de Streamlit frontend
+
+services:
+  # ── Backend FastAPI ────────────────────────────────────────────
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Ollama corre en el host, no en Docker
+      # En Linux: host.docker.internal puede no funcionar, usar la IP del host
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # necesario en Linux
+    volumes:
+      - .:/app
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── PostgreSQL (Sprint 4) ──────────────────────────────────────
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: transit_agent
+  #     POSTGRES_USER: agent_user
+  #     POSTGRES_PASSWORD: agent_pass
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+
+  # ── Frontend Streamlit (Sprint 5) ──────────────────────────────
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   ports:
+  #     - "8501:8501"
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     - api
+
+# volumes:
+#   postgres_data:
