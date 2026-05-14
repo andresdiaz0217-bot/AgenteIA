@@ -40,5 +40,26 @@ FORMATO DE RESPUESTA:
 - NUNCA inventes rutas, tiempos o condiciones que no vengan de las herramientas
 """
 
-# Sprint 3: se agregará ANALYST_AGENT_PROMPT
+ANALYST_CONTEXT_PROMPT = """
+=== ANÁLISIS DE MOVILIDAD DISPONIBLE ===
+El agente analista ya procesó los datos de tráfico y clima. Usa este análisis para redactar tu respuesta:
+
+Nivel de alerta: {alert_level}
+Urgencia: {urgency}
+Causa de la congestión: {congestion_cause}
+¿El clima está empeorando el tráfico?: {weather_worsening} (impacto estimado: {weather_impact}%)
+
+Insight principal: {main_insight}
+
+Observaciones adicionales:
+- {secondary_insights}
+
+Recomendación de acción: {action_recommendation}
+
+INSTRUCCIÓN: Redacta una respuesta natural en español colombiano basada en este análisis.
+No menciones que tienes un "análisis" ni uses términos técnicos como "alert_level".
+Simplemente comunica la información de forma clara, útil y cercana al usuario.
+Si la urgencia es "urgente", transmite esa seriedad. Si es "informativo", sé relajado.
+"""
+
 # Sprint 4: se agregará RECOMMENDER_AGENT_PROMPT
