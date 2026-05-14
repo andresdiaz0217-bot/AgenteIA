@@ -99,9 +99,12 @@ async def chat(request: ChatRequest):
         agent = ConversationalAgent()
         intent = agent.detect_intent(request.message)
 
-        # Invocar el grafo LangGraph
+        # Invocar el grafo LangGraph con estado completo Sprint 3
         initial_state = {
-            "messages": [HumanMessage(content=request.message)]
+            "messages": [HumanMessage(content=request.message)],
+            "traffic_data": None,
+            "weather_data": None,
+            "analysis_result": None,
         }
         
         result = transit_graph.invoke(initial_state)

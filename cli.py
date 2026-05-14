@@ -27,14 +27,12 @@ def run_interactive():
     print("\n" + "="*60)
     weather_src = "OpenWeatherMap" if os.getenv("OPENWEATHER_API_KEY", "tu_key_aqui") != "tu_key_aqui" else "mock"
     traffic_src = "TomTom" if os.getenv("TOMTOM_API_KEY", "tu_key_aqui") != "tu_key_aqui" else "mock"
-    print("  TRANSIT AGENT — Medellín")
+    print("🚦  TRANSIT AGENT — Medellín")
     print(f"    Modelo : {os.getenv('OLLAMA_MODEL', 'llama3.2')} (local)")
     print(f"    Clima  : {weather_src}")
     print(f"    Tráfico: {traffic_src}")
     print("    Escribe 'salir' para terminar")
     print("="*60 + "\n")
-
-    conversation_history = []
 
     while True:
         try:
@@ -50,16 +48,17 @@ def run_interactive():
         # Detectar intención (para mostrar en terminal)
         intent = agent.detect_intent(user_input)
 
-        # Agregar mensaje al historial
-        conversation_history.append(HumanMessage(content=user_input))
-
         try:
-            # Invocar el grafo con el historial completo
-            result = transit_graph.invoke({"messages": conversation_history})
+            # Cada turno arranca con solo el mensaje actual.
+            # Sprint 4: aquí se incorporará memoria persistente de sesión.
+            state = {
+                "messages": [HumanMessage(content=user_input)],
+                "traffic_data": None,
+                "weather_data": None,
+                "analysis_result": None,
+            }
+            result = transit_graph.invoke(state)
             messages = result["messages"]
-
-            # Actualizar historial con toda la conversación
-            conversation_history = messages
 
             # Encontrar la respuesta final
             final_response = ""
@@ -83,17 +82,20 @@ def run_single(message: str):
     agent = ConversationalAgent()
     intent = agent.detect_intent(message)
 
-    print(f"\n Pregunta: {message}")
-    print(f" Intención detectada: {intent}")
-    print(" Procesando...\n")
+    print(f"\n📨 Pregunta: {message}")
+    print(f"🎯 Intención detectada: {intent}")
+    print("⏳ Procesando...\n")
 
     result = transit_graph.invoke({
-        "messages": [HumanMessage(content=message)]
+        "messages": [HumanMessage(content=message)],
+        "traffic_data": None,
+        "weather_data": None,
+        "analysis_result": None,
     })
 
     for msg in reversed(result["messages"]):
         if isinstance(msg, AIMessage) and msg.content:
-            print(f" Respuesta: {msg.content}\n")
+            print(f"🤖 Respuesta: {msg.content}\n")
             break
 
 
