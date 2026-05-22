@@ -62,4 +62,38 @@ Simplemente comunica la información de forma clara, útil y cercana al usuario.
 Si la urgencia es "urgente", transmite esa seriedad. Si es "informativo", sé relajado.
 """
 
-# Sprint 4: se agregará RECOMMENDER_AGENT_PROMPT
+RECOMMENDER_CONTEXT_PROMPT = """
+=== RECOMENDACIÓN DE MOVILIDAD ===
+El agente recomendador generó las siguientes sugerencias concretas:
+
+Tipo de recomendación: {recommendation_type}
+Recomendación principal: {primary_recommendation}
+Mejor momento para salir: {best_departure_time}
+
+Rutas alternativas sugeridas:
+- {alternative_routes}
+
+Tips de movilidad:
+- {mobility_tips}
+
+Transporte público sugerido: {public_transport}
+
+INSTRUCCIÓN: Integra estas recomendaciones en tu respuesta de forma natural.
+Prioriza la recomendación principal. Menciona alternativas si son relevantes.
+No uses viñetas ni formato técnico — habla como un amigo que conoce bien la ciudad.
+"""
+
+SESSION_CONTEXT_PROMPT = """
+=== CONTEXTO DE SESIÓN ===
+El usuario ya ha hecho {turn_count} consulta(s) en esta sesión.
+Última zona consultada: {last_zone}
+Último clima registrado: {last_weather}
+Última congestión registrada: {last_congestion}/100
+Zonas consultadas hoy: {zones_history}
+
+INSTRUCCIÓN: Usa este contexto para responder preguntas de seguimiento coherentemente.
+Si el usuario pregunta "¿y por allá?" o "¿y si llueve?" usa el contexto para inferir
+a qué zona o condición se refiere. No menciones explícitamente que tienes un "contexto".
+"""
+
+# Sprint 5: prompts para el dashboard Streamlit

@@ -1,54 +1,50 @@
 """
 graph/workflow.py
 
-Orquestador central basado en LangGraph.
+Orquestador central basado en LangGraph — Sprint 4.
 
-Sprint 1: grafo simple — conversacional + tools.
-Sprint 2: APIs reales en tools (sin cambios en el grafo).
-Sprint 3: se agrega analyst_node con lógica de correlación clima/tráfico.
-Sprint 4: se agrega recommender_node y memoria persistente.
+Flujo completo:
+  conversational → tools → analyst → recommender → conversational → END
+                         ↘ (un solo tool) → conversational → END
 
-Flujo Sprint 3:
-  conversational → tools → analyst (si hay ambos datos) → conversational → END
-                         ↘ conversational (si solo hay un tipo de datos) → END
+Novedades Sprint 4:
+  - recommender_node después del analista
+  - SessionMemory para contexto entre turnos
+  - El contexto de sesión enriquece las recomendaciones
 """
 
 import json
 from typing import TypedDict, Annotated
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode
 import operator
 
 from agents.conversational import ConversationalAgent
+from graph.memory import session_memory
 
 
 # ── Estado del grafo ──────────────────────────────────────────────────────────
 
 class AgentState(TypedDict):
-    # Historial de mensajes (LangChain format)
     messages: Annotated[list, operator.add]
 
-    # Sprint 3: datos extraídos de los ToolMessages para el analista
+    # Datos de tools (Sprint 3)
     traffic_data: dict | None
     weather_data: dict | None
 
-    # Sprint 3: resultado del agente analista
+    # Análisis (Sprint 3)
     analysis_result: dict | None
 
-    # Sprint 4: contexto de sesión y memoria
-    # session_id: str | None
-    # user_context: dict | None
+    # Recomendación (Sprint 4)
+    recommendation_result: dict | None
+
+    # Contexto de sesión (Sprint 4)
+    session_context: dict | None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _extract_tool_results(messages: list) -> tuple[dict | None, dict | None]:
-    """
-    Recorre los mensajes y extrae los resultados de traffic y weather tools.
-    Los ToolMessages contienen el JSON retornado por cada tool.
-    """
     from langchain_core.messages import ToolMessage
-
     traffic_data = None
     weather_data = None
 
@@ -60,7 +56,6 @@ def _extract_tool_results(messages: list) -> tuple[dict | None, dict | None]:
         except (json.JSONDecodeError, TypeError):
             continue
 
-        # Identificar por campos únicos de cada tool
         if "congestion_level" in content:
             traffic_data = content
         elif "condition" in content and "temperature_celsius" in content:
@@ -74,19 +69,36 @@ def _extract_tool_results(messages: list) -> tuple[dict | None, dict | None]:
 def conversational_node(state: AgentState) -> dict:
     """
     Nodo conversacional.
-    Sprint 3: si hay analysis_result en el estado, lo inyecta en el contexto
-    para que el LLM redacte la respuesta final basada en el análisis.
+    Sprint 4: usa el contexto de sesión para respuestas de seguimiento,
+    y combina análisis + recomendación en el prompt final.
     """
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from prompts.system_prompts import CONVERSATIONAL_AGENT_PROMPT, ANALYST_CONTEXT_PROMPT
+    from langchain_core.messages import SystemMessage
+    from prompts.system_prompts import (
+        ANALYST_CONTEXT_PROMPT,
+        RECOMMENDER_CONTEXT_PROMPT,
+        SESSION_CONTEXT_PROMPT,
+    )
 
     agent = ConversationalAgent()
-    messages = state["messages"]
+    messages = list(state["messages"])
     analysis = state.get("analysis_result")
+    recommendation = state.get("recommendation_result")
+    session_ctx = state.get("session_context") or {}
 
-    # Si hay análisis disponible, agregar contexto al final del historial
+    # Inyectar contexto de sesión si hay turnos previos
+    if session_ctx.get("turn_count", 0) > 0:
+        session_prompt = SESSION_CONTEXT_PROMPT.format(
+            last_zone=session_ctx.get("last_zone") or "ninguna",
+            last_weather=session_ctx.get("last_weather_condition") or "desconocido",
+            last_congestion=session_ctx.get("last_congestion_score", 0),
+            zones_history=", ".join(session_ctx.get("zones_history", [])) or "ninguna",
+            turn_count=session_ctx.get("turn_count", 0),
+        )
+        messages = messages + [SystemMessage(content=session_prompt)]
+
+    # Inyectar análisis si existe
     if analysis:
-        analysis_context = ANALYST_CONTEXT_PROMPT.format(
+        analysis_prompt = ANALYST_CONTEXT_PROMPT.format(
             alert_level=analysis["alert_level"],
             main_insight=analysis["main_insight"],
             secondary_insights="\n- ".join(analysis["secondary_insights"]),
@@ -96,34 +108,39 @@ def conversational_node(state: AgentState) -> dict:
             weather_impact=analysis["weather_impact_percent"],
             congestion_cause=analysis["congestion_cause"],
         )
-        # Inyectamos el análisis como un mensaje de sistema adicional
-        from langchain_core.messages import SystemMessage
-        messages = messages + [SystemMessage(content=analysis_context)]
+        messages = messages + [SystemMessage(content=analysis_prompt)]
+
+    # Inyectar recomendación si existe
+    if recommendation:
+        rec_prompt = RECOMMENDER_CONTEXT_PROMPT.format(
+            recommendation_type=recommendation["recommendation_type"],
+            primary_recommendation=recommendation["primary_recommendation"],
+            alternative_routes="\n- ".join(recommendation["alternative_routes"]) or "ninguna",
+            best_departure_time=recommendation["best_departure_time"],
+            mobility_tips="\n- ".join(recommendation["mobility_tips"]) or "ninguno",
+            public_transport=recommendation["public_transport_suggestion"] or "no aplica",
+        )
+        messages = messages + [SystemMessage(content=rec_prompt)]
 
     response = agent.invoke(messages)
     return {
         "messages": [response],
-        # Limpiar el análisis después de usarlo para no repetirlo en el próximo turno
         "analysis_result": None,
+        "recommendation_result": None,
     }
 
 
 def tools_node_wrapper(state: AgentState) -> dict:
-    """
-    Wrapper del ToolNode que además extrae los datos para el analista.
-    Ejecuta las tools y actualiza traffic_data / weather_data en el estado.
-    """
     from tools.traffic_tool import get_traffic_status
     from tools.weather_tool import get_weather_status
+    from langgraph.prebuilt import ToolNode
 
     tools = [get_traffic_status, get_weather_status]
     tool_node = ToolNode(tools)
 
-    # Ejecutar las tools
     result = tool_node.invoke(state)
     new_messages = result.get("messages", [])
 
-    # Extraer resultados del tool para el analista
     all_messages = state["messages"] + new_messages
     traffic_data, weather_data = _extract_tool_results(all_messages)
 
@@ -135,34 +152,55 @@ def tools_node_wrapper(state: AgentState) -> dict:
 
 
 def analyst_node(state: AgentState) -> dict:
-    """
-    Nodo analista: correlaciona clima y tráfico y genera AnalysisResult.
-    Solo se ejecuta cuando hay AMBOS datos disponibles en el estado.
-    """
     from agents.analyst import AnalystAgent
 
-    traffic_data = state.get("traffic_data")
-    weather_data = state.get("weather_data")
-
     agent = AnalystAgent()
-    result = agent.invoke(traffic_data, weather_data)
+    result = agent.invoke(state["traffic_data"], state["weather_data"])
 
     return {
         "analysis_result": agent.to_dict(result),
-        # Limpiar datos usados para no acumularlos entre turnos
         "traffic_data": None,
         "weather_data": None,
+    }
+
+
+def recommender_node(state: AgentState) -> dict:
+    """
+    Nodo recomendador — Sprint 4.
+    Recibe el AnalysisResult y el contexto de sesión,
+    genera RecommendationResult y actualiza la memoria.
+    """
+    from agents.recommender import RecommenderAgent
+
+    analysis = state.get("analysis_result")
+    session_ctx = state.get("session_context")
+
+    agent = RecommenderAgent()
+    result = agent.invoke(analysis, session_ctx)
+    rec_dict = agent.to_dict(result)
+
+    # Actualizar memoria de sesión con los datos de este turno
+    # Recuperamos traffic/weather del análisis para guardar en memoria
+    session_memory.update(
+        traffic_data={
+            "zone": analysis.get("zone"),
+            "congestion_score": int(analysis.get("weather_impact_percent", 0)),
+        },
+        weather_data={
+            "condition": "lluvia" if analysis.get("weather_worsening_traffic") else "despejado",
+        },
+        recommendation=rec_dict,
+    )
+
+    return {
+        "recommendation_result": rec_dict,
+        "session_context": session_memory.get(),
     }
 
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 
 def after_conversational(state: AgentState) -> str:
-    """
-    Después del nodo conversacional:
-    - Si el LLM quiere usar tools → ir a tools
-    - Si no → terminar
-    """
     last_message = state["messages"][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "tools"
@@ -170,11 +208,6 @@ def after_conversational(state: AgentState) -> str:
 
 
 def after_tools(state: AgentState) -> str:
-    """
-    Después de ejecutar tools:
-    - Si tenemos AMBOS datos (tráfico + clima) → ir al analista
-    - Si solo tenemos uno → volver al conversacional directamente
-    """
     has_traffic = state.get("traffic_data") is not None
     has_weather = state.get("weather_data") is not None
 
@@ -186,49 +219,45 @@ def after_tools(state: AgentState) -> str:
 # ── Construcción del grafo ────────────────────────────────────────────────────
 
 def build_graph():
-    """Construye y compila el grafo LangGraph para Sprint 3."""
-
     graph = StateGraph(AgentState)
 
-    # Nodos
     graph.add_node("conversational", conversational_node)
     graph.add_node("tools", tools_node_wrapper)
     graph.add_node("analyst", analyst_node)
+    graph.add_node("recommender", recommender_node)
 
-    # Punto de entrada
     graph.set_entry_point("conversational")
 
-    # Aristas desde conversacional
     graph.add_conditional_edges(
         "conversational",
         after_conversational,
         {"tools": "tools", END: END},
     )
 
-    # Aristas desde tools: ¿ir al analista o directo al conversacional?
     graph.add_conditional_edges(
         "tools",
         after_tools,
         {"analyst": "analyst", "conversational": "conversational"},
     )
 
-    # Después del analista siempre vuelve al conversacional para redactar
-    graph.add_edge("analyst", "conversational")
+    # analyst → recommender → conversational
+    graph.add_edge("analyst", "recommender")
+    graph.add_edge("recommender", "conversational")
 
     return graph.compile()
 
 
-# Estado inicial por defecto
-def initial_state(user_message: str) -> AgentState:
-    """Crea el estado inicial para una nueva consulta."""
+def build_initial_state(user_message: str) -> AgentState:
+    """Estado inicial con contexto de sesión actual."""
     from langchain_core.messages import HumanMessage
     return {
         "messages": [HumanMessage(content=user_message)],
         "traffic_data": None,
         "weather_data": None,
         "analysis_result": None,
+        "recommendation_result": None,
+        "session_context": session_memory.get(),
     }
 
 
-# Instancia global del grafo
 transit_graph = build_graph()

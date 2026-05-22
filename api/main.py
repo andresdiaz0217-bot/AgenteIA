@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     print(f"   Ollama URL: {os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')}")
     print(f"   Sprint: 1 — Agente conversacional con datos mock")
     yield
-    print("🛑 Transit Agent detenido.")
+    print(" Transit Agent detenido.")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -99,13 +99,9 @@ async def chat(request: ChatRequest):
         agent = ConversationalAgent()
         intent = agent.detect_intent(request.message)
 
-        # Invocar el grafo LangGraph con estado completo Sprint 3
-        initial_state = {
-            "messages": [HumanMessage(content=request.message)],
-            "traffic_data": None,
-            "weather_data": None,
-            "analysis_result": None,
-        }
+        # Invocar el grafo LangGraph con estado Sprint 4
+        from graph.workflow import build_initial_state
+        initial_state = build_initial_state(request.message)
         
         result = transit_graph.invoke(initial_state)
         messages = result["messages"]
