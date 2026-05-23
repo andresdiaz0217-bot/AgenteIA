@@ -2,9 +2,7 @@
 api/main.py
 
 Backend FastAPI del agente de tránsito.
-
-Sprint 1: endpoint /chat funcional con agente conversacional.
-Sprint 2+: se agregan endpoints para datos en tiempo real, historial, etc.
+Sprint 5: sistema completo con todos los agentes integrados.
 """
 
 import os
@@ -18,19 +16,22 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 load_dotenv()
 
+# ── Import a nivel de módulo para que los mocks de tests funcionen ────────────
+from graph.workflow import transit_graph, build_initial_state
+
 
 # ── Modelos de request/response ───────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: str | None = None  # Sprint 4: usado para memoria persistente
+    session_id: str | None = None
 
 
 class ChatResponse(BaseModel):
     response: str
-    intent: str           # tráfico | clima | combinado | general
-    sources_used: list[str]   # ["traffic_tool", "weather_tool"] para transparencia
-    data_source: str      # "mock" en S1, "real" en S2+
+    intent: str
+    sources_used: list[str]
+    data_source: str
 
 
 class HealthResponse(BaseModel):
@@ -44,13 +45,12 @@ class HealthResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Inicializar recursos al arrancar la app."""
     print("🚦 Transit Agent arrancando...")
     print(f"   Modelo: {os.getenv('OLLAMA_MODEL', 'llama3.2')}")
     print(f"   Ollama URL: {os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')}")
-    print(f"   Sprint: 1 — Agente conversacional con datos mock")
+    print(f"   Sprint: 5 — Sistema multiagente completo")
     yield
-    print(" Transit Agent detenido.")
+    print("🛑 Transit Agent detenido.")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -58,13 +58,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Transit Agent API",
     description="Agente de IA para información de tránsito en tiempo real — Medellín",
-    version="1.0.0-sprint1",
+    version="1.0.0-sprint5",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # Sprint 5: restringir al dominio del frontend
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,11 +76,18 @@ app.add_middleware(
 @app.get("/health", response_model=HealthResponse)
 async def health():
     """Estado del sistema y herramientas disponibles."""
+    weather_src = "OpenWeatherMap" if os.getenv("OPENWEATHER_API_KEY", "tu_key_aqui") != "tu_key_aqui" else "mock"
+    traffic_src = "TomTom" if os.getenv("TOMTOM_API_KEY", "tu_key_aqui") != "tu_key_aqui" else "mock"
     return HealthResponse(
         status="ok",
         model=os.getenv("OLLAMA_MODEL", "llama3.2"),
-        sprint="1 - Agente conversacional",
-        tools_available=["get_traffic_status (mock)", "get_weather_status (mock)"],
+        sprint="5 - Sistema multiagente completo",
+        tools_available=[
+            f"get_traffic_status ({traffic_src})",
+            f"get_weather_status ({weather_src})",
+            "analyst_agent",
+            "recommender_agent",
+        ],
     )
 
 
@@ -88,25 +95,18 @@ async def health():
 async def chat(request: ChatRequest):
     """
     Endpoint principal: recibe una pregunta y retorna respuesta del agente.
-    
-    El agente decide automáticamente qué tools usar basándose en la pregunta.
+    El grafo decide automáticamente qué agentes y tools invocar.
     """
-    from graph.workflow import transit_graph
     from agents.conversational import ConversationalAgent
 
     try:
-        # Detectar intención para el response (el LLM hace la detección real)
         agent = ConversationalAgent()
         intent = agent.detect_intent(request.message)
 
-        # Invocar el grafo LangGraph con estado Sprint 4
-        from graph.workflow import build_initial_state
         initial_state = build_initial_state(request.message)
-        
         result = transit_graph.invoke(initial_state)
         messages = result["messages"]
 
-        # Extraer respuesta final (último AIMessage)
         final_response = ""
         for msg in reversed(messages):
             if isinstance(msg, AIMessage) and msg.content:
@@ -116,29 +116,22 @@ async def chat(request: ChatRequest):
         if not final_response:
             raise HTTPException(status_code=500, detail="El agente no generó respuesta")
 
-        # Detectar qué tools fueron usadas
         sources_used = []
         for msg in messages:
             if isinstance(msg, ToolMessage):
-                sources_used.append(msg.name if hasattr(msg, 'name') else "tool")
+                sources_used.append(msg.name if hasattr(msg, "name") else "tool")
+
+        data_source = "real" if sources_used else "llm"
 
         return ChatResponse(
             response=final_response,
             intent=intent,
             sources_used=list(set(sources_used)),
-            data_source="mock",
+            data_source=data_source,
         )
 
     except Exception as e:
-        # En desarrollo, exponer el error. Sprint 5: manejar con más gracia.
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ── Sprint 2+: endpoints adicionales ──────────────────────────────────────────
-# GET /traffic/{zone}   → datos de tránsito en tiempo real
-# GET /weather/{city}   → datos climáticos en tiempo real  
-# GET /history          → historial de consultas (Sprint 4, requiere DB)
-# POST /feedback        → retroalimentación del usuario (Sprint 4)
 
 
 if __name__ == "__main__":
