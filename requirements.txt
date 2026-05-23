@@ -18,7 +18,7 @@ python-dotenv>=1.0.0
 # sqlalchemy>=2.0.0         # descomentar en Sprint 4
 
 # ── Frontend (Sprint 5) ──────────────────────────────────────────
-# streamlit>=1.35.0          # descomentar en Sprint 5
+streamlit>=1.35.0
 
 # ── Pruebas ──────────────────────────────────────────────────────
 pytest>=8.2.0
